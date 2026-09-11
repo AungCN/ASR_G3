@@ -1,0 +1,17 @@
+# Assignment 4 - Mini ASR: recording-tool dependencies
+# Install into the shared repo venv:
+#   ../.venv/bin/python -m pip install -r requirements.txt
+#
+# macOS also needs the PortAudio system library (sounddevice links against it):
+#   brew install portaudio
+
+PyQt6>=6.6
+sounddevice>=0.4.6
+numpy>=1.24
+
+# Step 3 (Kaldi ASR notebook): step3_asr/mini_asr_kaldi.ipynb
+# Kaldi itself runs in Docker (tklwin/kaldi-apple-silicon); these are host-side.
+jupyterlab>=4.6
+nbformat>=5.10
+pandas>=2.0
+matplotlib>=3.8

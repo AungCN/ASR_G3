@@ -1,0 +1,35 @@
+# Personal voice recordings and anything built from them are kept out of git
+# on purpose — they're private, and too large for a normal repository.
+# See README.md ("About the data") for how this project handles that, and
+# ADD_SPEAKER.md for how to regenerate everything locally from a set of
+# recordings.
+/recordings/
+/recordings_norm/
+/recordings_trim/
+/raw-corpus/
+/recording_tool/v0.9_test_recording/
+
+# Maps generic labels used in the code (e.g. "training voice 1") to the real
+# recording-folder names on this machine. Copy speaker_config.example.py to
+# create your own.
+/step3_asr/speaker_config.py
+
+# Kaldi's working directory, rebuilt by running the notebook — large and
+# fully reproducible, so there's no need to store it.
+/step3_asr/s5/
+
+# Scratch recordings made while trying out the live tester (asr_tester.py)
+/step3_asr/live_wavs_gui/
+
+# Zipped submission packages
+*.zip
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
