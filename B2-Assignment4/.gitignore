@@ -26,6 +26,8 @@
 
 # Jupyter
 .ipynb_checkpoints/
+# Server startup logs can contain a live access token in the URL - never commit these.
+/step3_asr/jupyter.log
 
 # Python
 __pycache__/
