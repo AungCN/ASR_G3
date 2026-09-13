@@ -2,8 +2,6 @@
 
 Everything for building the HMM-GMM + advanced models and scoring WER / SER,
 driven from one Jupyter notebook. Kaldi itself runs in Docker
-(`tklwin/kaldi-apple-silicon`, Apple-Silicon native), so nothing needs to be
-compiled on the host.
 
 ## Files
 
@@ -111,9 +109,9 @@ Stacked on top in the same run: audio from **`recordings_trim/`**
 units** with ASCII phone ids, **MFCC + 3 pitch features** (Burmese is tonal),
 `--boost-silence 1.25`.
 
-## Where it stands
+## Details
 
-* **dev ~9% SER** (matched, closed-vocab) - a genuinely working recogniser.
+* **dev ~9% SER** (matched, closed-vocab) - a working recogniser.
 * **test ~45% SER** (speaker-independent, one male + one female) - usable, not
   great. Still a gender gap (~38% male vs ~52% female for tri3) because
   training is all male.
@@ -126,7 +124,27 @@ units** with ASCII phone ids, **MFCC + 3 pitch features** (Burmese is tonal),
 Next levers: more speakers of both genders (assignment wants ~10), a proper
 Burmese phone set instead of syllable units, and cleaner recording levels.
 
-## Live tester (`asr_tester.py`) - "open test" with a UI
+## Enhancement
+
+After reading up on neural networks, data augmentation, and other improvement
+ideas (see `../reference_asr/`), the next thing tried was a common trick
+called error correction: look at where `tri3` tends to go wrong on data it
+already knows well, write down those patterns, and use them to patch up its
+guesses on new recordings before scoring them - no retraining needed.
+
+
+Tested properly (patterns learned from `train` only, tuned and picked using
+`dev`, checked once against `test`), the honest result is that **it doesn't
+help at all** - the best setting found simply changes nothing, and any looser
+setting makes the guesses worse, not better. The reason: the words in this
+project are mostly numbers (phone numbers, quantities, dates), and the same
+digit shows up correctly in some recordings and wrongly in others depending
+on what's actually being said - there's no fixed "this is usually wrong, fix
+it to that" pattern to learn, so a rule that helps one recording actively
+breaks another. This isn't in `build_notebook.py` since it has no benefit;
+it's recorded here so the attempt (and why it didn't pan out) isn't lost.
+
+## tester (`asr_tester.py`) - "open test" with a UI
 
 A small PyQt6 app (same stack as `recording_tool/recorder.py`) for demoing the
 trained model interactively - record or load any WAV, transcribe it with one
