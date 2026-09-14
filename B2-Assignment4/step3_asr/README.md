@@ -60,7 +60,7 @@ Register the venv as a kernel once if it isn't listed:
 
 ## Split (matches the assignment spec)
 
-**6 speakers, 4 for training and 2 held out for testing** (one male voice,
+**7 speakers, 5 for training and 2 held out for testing** (one male voice,
 one female voice) - the actual recording-folder names live in
 `speaker_config.py`, which is not committed to git (see the main
 [README](../README.md) for why). Everywhere below, speakers are referred to
@@ -68,15 +68,33 @@ by role, not name.
 
 | set | speakers | passes | utts |
 |---|---|---|---|
-| train | the 4 training voices | pooled, random 88% (seed 1234) | 2645 |
-| dev | same 4 | pooled, random 12% (seed 1234) - **matched** to train | 361 |
+| train | the 5 training voices (4 male, 1 female) | pooled, random 88% (seed 1234) | 3306 |
+| dev | same 5 | pooled, random 12% (seed 1234) - **matched** to train | 451 |
 | test | held-out male voice + held-out female voice | all 5 | 1497 (a couple of known-bad clips dropped) - **speaker-independent** |
 
 `NJ_TRAIN=4`, `GMM_SIZES` roughly doubled (tri1 1200/9000, tri2/tri3
-1800/12000) to match the bigger training set. More speakers land -> add them
-to `speaker_config.py`, `python build_notebook.py`, rerun from section 4.
+1800/12000) for the 4-training-speaker run and not yet re-tuned for the
+current 5. More speakers land -> add them to `speaker_config.py`,
+`python build_notebook.py`, rerun from section 4.
 
-## Results (2026-09-11, after the OOV-bug fix / `RESULTS.csv`)
+**Two real bugs turned up adding the 5th (first female training) speaker,**
+both worth knowing about if you add a 6th:
+1. The Kaldi working directory (`s5/`) is reused between runs and the data-prep
+   step only overwrote `wav.scp`/`text`/`utt2spk` - it left the *previous*
+   run's already-computed features/`cmvn.scp` sitting there. Kaldi's own
+   cleanup script then silently used those stale files as the source of
+   truth and quietly dropped the new speaker back out, with no error - a full
+   rerun with the new speaker's data "succeeded" while training on the old
+   4-speaker set. Fixed by wiping each `data/<set>/` dir before rewriting it.
+2. Once she was actually included, a second issue appeared: her recordings
+   were made under a slightly different capitalisation than her folder name,
+   and Kaldi requires each speaker's utterance ids to sort together as one
+   block. With only 2-4 speakers this had never mattered; with 5, the
+   mismatch broke that ordering and Kaldi refused to proceed. Fixed by
+   reading each speaker's id from their own recordings instead of the local
+   folder name.
+
+## Results (2026-09-14, 5 training speakers / `RESULTS.csv`)
 
 **SER (syllable error rate) is the primary metric** - `text` is
 syllable-segmented so Kaldi's scorer reports SER directly. WER is approximate:
@@ -86,14 +104,42 @@ pessimistic upper bound.
 
 | model | dev SER | test SER | dev WER~ | test WER~ |
 |---|---:|---:|---:|---:|
-| mono | 18.5 | 47.6 | 75 | 105 |
-| tri1 (Δ+ΔΔ) | **9.2** | 63.6 | 40 | 115 |
-| tri2 (LDA+MLLT) | 9.6 | 71.4 | 45 | 106 |
-| tri3 (SAT) | 8.8 | **45.5** | 35 | 107 |
-| tri3 + bMMI | 8.9 | 47.6 | 35 | 104 |
+| mono | 20.6 | 50.8 | 87 | 104 |
+| tri1 (Δ+ΔΔ) | 11.8 | 61.2 | 54 | 125 |
+| tri2 (LDA+MLLT) | 10.7 | 67.4 | 56 | 116 |
+| tri3 (SAT) | **9.5** | **48.7** | 54 | 110 |
+| tri3 + bMMI | 9.7 | 50.8 | 56 | 111 |
 
 **Test SER split by speaker** (tri3 / mono): held-out male voice
-38.6 / 31.8 vs held-out female voice 52.4 / 63.6.
+32.8 / 30.5 vs held-out female voice 64.7 / 71.3.
+
+**Honest finding - adding one female training voice did not close the gender
+gap, and made it slightly worse.** Previous run (4 training speakers, all
+male): dev ~8.8-9.6% SER, test ~45.5% SER for tri3, with the held-out female
+voice at 52.4% SER. This run adds a 5th training speaker who happens to be
+female, on the reasoning (also in the main [README](../README.md)) that more
+women's voices in training should help recognise women's voices generally.
+Instead, dev SER moved slightly worse across every model, and the held-out
+female speaker's SER got noticeably worse too (52.4% -> 64.7% for tri3),
+while the held-out male speaker's SER improved a little (38.6% -> 32.8%).
+
+A few honest possible reasons, none confirmed:
+* One added voice is one new *individual*, not "more women's voices" in
+  general - her specific voice, pacing, or recording setup may simply not
+  resemble the held-out female test speaker's, and at this data size one
+  person's quirks can outweigh the intended effect.
+* `GMM_SIZES` (the tree/Gaussian counts) were not re-tuned for the bigger
+  training set - still sized for 4 speakers, not 5 - so the models may not be
+  using the extra data as well as they could.
+* Her recordings needed unusually heavy silence-trimming (45% of duration
+  removed, vs ~22% typical for the other speakers), suggesting a different
+  pace or recording setup that may not transfer as cleanly.
+
+This isn't reason to abandon the "more female voices" plan - one added
+speaker is a small, noisy sample size to judge a hypothesis by. It does mean
+this particular result shouldn't be reported as "fixed the gender gap" -
+that would not be honest. The real test is whether the pattern holds (or
+reverses) once a 2nd and 3rd female training voice are added.
 
 **The fix that got here** - every run before 2026-09-11 had ~85-140% WER
 because of one bug: the Kaldi `text` files carried prompt-level tokens
@@ -111,18 +157,20 @@ units** with ASCII phone ids, **MFCC + 3 pitch features** (Burmese is tonal),
 
 ## Details
 
-* **dev ~9% SER** (matched, closed-vocab) - a working recogniser.
-* **test ~45% SER** (speaker-independent, one male + one female) - usable, not
-  great. Still a gender gap (~38% male vs ~52% female for tri3) because
-  training is all male.
+* **dev ~9.5% SER** (matched, closed-vocab) - a working recogniser.
+* **test ~49% SER** (speaker-independent, one male + one female) - usable, not
+  great. Still a gender gap (~33% male vs ~65% female for tri3), and adding
+  one female training voice did not close it (see the honest finding above).
 * One of the training voices has severe mic clipping (100% of its clips, see
   that speaker's `NOTES.txt` under `../recordings/`) - a rerun with it
   excluded would isolate how much it hurts.
 * WER via re-segmentation is crude; a better syllable->word aligner (or just
   reporting SER as the headline) would clean up that column.
 
-Next levers: more speakers of both genders (assignment wants ~10), a proper
-Burmese phone set instead of syllable units, and cleaner recording levels.
+Next levers: several more speakers of both genders (assignment wants ~10 -
+one more female voice wasn't enough to move the needle), re-tuning
+`GMM_SIZES` for the current training-set size, a proper Burmese phone set
+instead of syllable units, and cleaner recording levels.
 
 ## Enhancement
 
@@ -166,12 +214,14 @@ of the trained models, optionally type what was actually said and see the SER.
   live.
 - Backend is `asr_backend.py` (`transcribe(wav_path, model="mono")`) - reusable
   from a script or another notebook cell, independent of the GUI.
-- **Set expectations before demoing live**: training is 4 male speakers. On
-  a clip from a *training* speaker it's near-perfect on the number/phone
-  prompts; on an unseen male voice expect ~38% syllable error, on a female
-  voice ~52% (all-male training). Prompts from `mini-asr-v1.txt` read the
-  same way as the recordings are the best bet. The app's banner says this up
-  front.
+- **Set expectations before demoing live**: training is 5 speakers (4 male,
+  1 female). On a clip from a *training* speaker it's near-perfect on the
+  number/phone prompts; on an unseen male voice expect ~33% syllable error,
+  on a female voice ~65% - still a real gender gap even after adding one
+  female training voice (see the honest finding above). Prompts from
+  `mini-asr-v1.txt` read the same way as the recordings are the best bet.
+  The app's banner should say this up front - update it in `asr_tester.py`
+  if the numbers above change.
 
 ## Runtime
 

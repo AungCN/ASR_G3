@@ -29,17 +29,17 @@ md(r"""
 End-to-end HMM-GMM (monophone -> triphone) plus one "advanced" model, scored
 with **WER** and **SER** (Syllable Error Rate).
 
-* **Corpus:** 6 speakers, 4 for training and 2 held out for testing (one male,
+* **Corpus:** 7 speakers, 5 for training and 2 held out for testing (one male,
   one female voice - see `speaker_config.py`, which holds the actual recording
   folder names and is not checked into git), 5 passes x 150 prompts each
-  (~4505 recordings in total). Audio source is **`../recordings_trim/`** =
+  (~5250 recordings in total). Audio source is **`../recordings_trim/`** =
   loudness-normalised (`tools/normalize_recordings.py`) then
   silence-trimmed (`tools/trim_silence.py`). Trimming is critical here: on
   raw audio an earlier run put **86% of training frames on silence** and
   never learned the speech.
 * **Split** (matches the assignment spec: test = one male + one female
   speaker, all their recordings):
-  * `train` / `dev` - the 4 training voices, all 5 passes, pooled and split
+  * `train` / `dev` - the 5 training voices, all 5 passes, pooled and split
     ~88 / 12 at random (seed `SPLIT_SEED`). dev is **matched** to train, for
     comparing models.
   * `test` = the held-out male voice + the held-out female voice, all
@@ -92,7 +92,7 @@ KALDI_ROOT  = "/opt/kaldi"
 
 # --- run params ---
 # Kaldi splits data BY SPEAKER, so nj must be <= #speakers actually present in
-# that set. train pool has 4 speakers (reliably all present in the 88% split);
+# that set. train pool has 5 speakers (reliably all present in the 88% split);
 # dev is a small random 12% slice - keep its nj conservative in case a
 # speaker is thin in that draw. test always has exactly 2 (1 male + 1 female).
 NJ_TRAIN  = 4
@@ -126,8 +126,9 @@ SPLIT_SEED     = 1234
 
 # GMM tree/gauss sizes - scaled for training-set size (the Kaldi wsj defaults
 # 2000/11000, 2500/15000 badly overfit a small corpus). Was 700/6000, 1000/8000
-# for ~1300 utts / 2 speakers; roughly doubled now that train is ~2600 utts /
-# 4 speakers. Adjust again as more speakers land.
+# for ~1300 utts / 2 speakers, then roughly doubled for ~2600 utts / 4 speakers;
+# not yet re-tuned for the current ~3300 utts / 5 speakers. Adjust again as
+# more speakers land.
 GMM_SIZES = {"tri1": (1200, 9000), "tri2": (1800, 12000), "tri3": (1800, 12000)}
 
 # Standard Kaldi wsj/librispeech value; helps the (now small, post-trim) sil
@@ -236,11 +237,12 @@ Build Kaldi `data/{train,dev,test}` from the recordings. `wav.scp` uses
 container paths (`/workspace/recordings/...`); transcripts are normalised (NFC,
 drop ASCII punctuation / commas, collapse spaces).
 
-* **train / dev** - all 5 passes of the two train speakers, pooled and split
+* **train / dev** - all 5 passes of the training speakers, pooled and split
   `DEV_FRACTION` at random (seed `SPLIT_SEED`). dev is therefore *matched* to
   train (same speakers, passes, mic) - the right set for **comparing models**.
-* **test** - the third speaker, held out entirely -> **speaker-independent**,
-  the hard number and the one the assignment cares about.
+* **test** - the two held-out speakers (one male, one female), held out
+  entirely -> **speaker-independent**, the hard number and the one the
+  assignment cares about.
 """)
 
 code(r"""
@@ -262,26 +264,45 @@ def norm_text(s: str) -> str:
 
 def collect(spec):
     # -> list of (utt, spk, container_wav_path, normalised_text) for a speaker/pass spec
+    #
+    # `spk` (the Kaldi speaker-id written into utt2spk) comes from that pass's
+    # OWN utt2spk sidecar, not the recordings/<folder> name used to locate it.
+    # Kaldi requires utt-ids to sort into contiguous per-speaker blocks, which
+    # only holds if the speaker-id matches the id actually embedded in the
+    # utt-id text. Folder names are just a local label (case can differ from
+    # the name typed into the recorder for that speaker's sessions) and using
+    # them directly breaks that invariant once enough speakers are mixed
+    # together for a casing mismatch to reorder things.
     rows = []
-    for spk, passes in spec:
+    for folder, passes in spec:
         for pz in passes:
-            pdir = RECS / spk / f"Rec{pz}"
+            pdir = RECS / folder / f"Rec{pz}"
             t = {}
             for ln in (pdir / "text").read_text(encoding="utf-8").splitlines():
                 if ln.strip():
                     k, _, v = ln.partition(" "); t[k] = v
+            u2s = {}
+            for ln in (pdir / "utt2spk").read_text(encoding="utf-8").splitlines():
+                if ln.strip():
+                    k, _, v = ln.partition(" "); u2s[k] = v
             for utt in sorted(t):
                 if utt in DROP_UTTS:
                     continue
+                spk = u2s[utt]
                 raw = unicodedata.normalize("NFC", t[utt].strip())
                 raw = re.sub(r"\s+", " ", PUNCT.sub(" ", raw)).strip()
-                rows.append((utt, spk, f"{WS}/{REC_SET}/{spk}/Rec{pz}/{utt}.wav",
+                rows.append((utt, spk, f"{WS}/{REC_SET}/{folder}/Rec{pz}/{utt}.wav",
                              norm_text(t[utt]),   # syllable-segmented (for Kaldi + SER)
                              raw))                # original whitespace tokens (for WER)
     return rows
 
 def write_data_dir(name, rows):
     d = S5 / "data" / name
+    # Wipe any previous run's dir first: a stale feats.scp/cmvn.scp left over
+    # from before (e.g. a speaker added since) makes fix_data_dir.sh silently
+    # filter the new speaker list down to whoever's in the old cached features.
+    if d.exists():
+        shutil.rmtree(d)
     d.mkdir(parents=True, exist_ok=True)
     cols = {"wav.scp": lambda r: f"{r[0]} {r[2]}",
             "text":    lambda r: f"{r[0]} {r[3]}",
@@ -651,8 +672,8 @@ ax.figure.savefig(NB_DIR/"results_wer.png", dpi=120)
 md(r"""
 ## 15 - Notes & limitations
 
-* **Expect high WER regardless.** With only **2 training speakers** and ~1300
-  utts the acoustic models are data-starved. `dev` (matched, random hold-out)
+* **Expect high WER regardless.** With only **5 training speakers** and ~3700
+  utts the acoustic models are still data-starved. `dev` (matched, random hold-out)
   shows the model progression; `test` (two unseen speakers, one male one
   female, per the assignment spec) is much harder and is the honest
   speaker-independent number. GMM tree/Gaussian counts are shrunk
@@ -671,8 +692,9 @@ md(r"""
 * **No SGMM2** in this image - the "advanced" model is boosted-MMI on tri3.
   The chain-TDNN cell is off by default (`RUN_CHAIN=False`); enable it only with
   spare time / RAM.
-* **`nj` is capped by speaker count** (train 2, dev 2, test 1) because Kaldi
-  splits by speaker. Raising `NJ_TRAIN` above 2 makes `train_mono.sh` refuse.
+* **`nj` is capped by speaker count** because Kaldi splits by speaker - a
+  random `dev` draw can be thin on some speakers, so its `nj` is kept
+  conservative (see `NJ_DECODE`).
 * Re-run `python build_notebook.py` after editing `build_notebook.py` to
   regenerate this notebook.
 """)

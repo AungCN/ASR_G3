@@ -80,9 +80,12 @@ properly:
 - On a completely new voice it has never heard, it gets a bit **under half**
   right.
 - It does noticeably better on a new **male** voice than a new **female**
-  voice, simply because every person used for training happened to be male.
-  This is an honest limitation, not something we tried to hide — more
-  training voices, especially women's voices, is the clear next step.
+  voice. Almost everyone used for training so far has been male, so a woman's
+  voice was added to training to see if that would help. It didn't - the
+  program actually got a little worse on new female voices, not better. This
+  is an honest result, not something we tried to hide — one extra voice
+  isn't enough to prove or disprove anything, and more training voices of
+  both kinds, especially women's voices, is still the clear next step.
 
 ## 9. A small app to try it live
 
