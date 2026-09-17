@@ -84,9 +84,10 @@ class ASRTester(QMainWindow):
         v = QVBoxLayout(root)
 
         note = QLabel(
-            "Trained on 4 male speakers. Syllable error rate: ~9% on held-out data from\n"
-            "the training speakers, ~38% for an unseen male voice, ~52% for a female voice\n"
-            "(training is all-male). Best on prompts from mini-asr-v1.txt read the same way\n"
+            "Trained on 5 speakers (4 male, 1 female). Syllable error rate: ~9-10% on\n"
+            "held-out data from the training speakers, ~33% for an unseen male voice,\n"
+            "~65% for an unseen female voice - still a real gender gap. Best on prompts\n"
+            "from mini-asr-v1.txt read the same way\n"
             "as the recordings. tri3 / tri3+MMI estimate their fMLLR transform from just\n"
             "your one clip (normally many utterances), so treat those as a curiosity."
         )

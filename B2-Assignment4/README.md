@@ -22,15 +22,19 @@ As of the most recent run, the system:
 - gets roughly **9 out of 10 syllables right** on speech from the people it
   was trained on (read back to it, but not the exact same recordings) — that's
   a genuinely working recognizer for this small script of prompts,
-- gets a bit under **half the syllables right** on a voice it has never heard
+- gets about **half the syllables right** on a voice it has never heard
   before,
 - and is noticeably better at recognizing an unfamiliar **male** voice than
-  an unfamiliar **female** one, simply because every voice used for training
-  so far has been male.
+  an unfamiliar **female** one. One woman's voice has since been added to
+  training, but that alone didn't close the gap — if anything it got
+  slightly worse for the unfamiliar female test voice, which is an honest,
+  slightly surprising result. See "the honest finding" in
+  [`step3_asr/README.md`](step3_asr/README.md) for the numbers and why.
 
 In short: it works, but it still needs more voices — especially more women's
-voices — to become reliably accurate for anyone. That's the clearest next
-step. Full details, numbers, and what was tried along the way are in
+voices, plural — to become reliably accurate for anyone. One extra voice
+wasn't enough to move the needle either way for sure; that's the clearest
+next step. Full details, numbers, and what was tried along the way are in
 [`step3_asr/README.md`](step3_asr/README.md).
 
 ## Trying it yourself
@@ -112,4 +116,4 @@ B2-Assignment4/
   [Kaldi Speech Recognition Toolkit](https://kaldi-asr.net/), run through the
   [`tklwin/kaldi-apple-silicon`](https://hub.docker.com/r/tklwin/kaldi-apple-silicon)
   Docker image (a build of Kaldi that runs natively on Apple Silicon Macs).
-- Recording participants: Aint Kyi Phyu Sin, Aung Ko Ko Oo, Htun Aung Kyaw, Phyo Myat Oo, Thein Kyaw Lwin, Aung Chan Nyein
+- Recording participants: Aint Kyi Phyu Sin, Su Ye Hlaing, Aung Ko Ko Oo, Htun Aung Kyaw, Phyo Myat Oo, Thein Kyaw Lwin, Aung Chan Nyein
