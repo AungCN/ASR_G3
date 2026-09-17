@@ -116,4 +116,4 @@ B2-Assignment4/
   [Kaldi Speech Recognition Toolkit](https://kaldi-asr.net/), run through the
   [`tklwin/kaldi-apple-silicon`](https://hub.docker.com/r/tklwin/kaldi-apple-silicon)
   Docker image (a build of Kaldi that runs natively on Apple Silicon Macs).
-- Recording participants: Aint Kyi Phyu Sin, Aung Ko Ko Oo, Htun Aung Kyaw, Phyo Myat Oo, Thein Kyaw Lwin, Aung Chan Nyein
+- Recording participants: Aint Kyi Phyu Sin, Su Ye Hlaing, Aung Ko Ko Oo, Htun Aung Kyaw, Phyo Myat Oo, Thein Kyaw Lwin, Aung Chan Nyein

@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """
-build_notebook.py - (re)generate mini_asr_kaldi.ipynb from source cells.
-
-Keeping the notebook's cells in a plain .py file makes them reviewable and
-diff-able. Run:  python build_notebook.py   ->  writes mini_asr_kaldi.ipynb
+build_notebook.py - regenerates mini_asr_kaldi.ipynb from the cells below.
+Run: python build_notebook.py
 """
 from __future__ import annotations
 
@@ -26,42 +24,24 @@ def code(src: str) -> None:
 md(r"""
 # Assignment 4 - Mini ASR with Kaldi (Myanmar)
 
-End-to-end HMM-GMM (monophone -> triphone) plus one "advanced" model, scored
-with **WER** and **SER** (Syllable Error Rate).
+End-to-end HMM-GMM (monophone -> triphone) plus one advanced model, scored
+with WER and SER (syllable error rate).
 
-* **Corpus:** 7 speakers, 5 for training and 2 held out for testing (one male,
-  one female voice - see `speaker_config.py`, which holds the actual recording
-  folder names and is not checked into git), 5 passes x 150 prompts each
-  (~5250 recordings in total). Audio source is **`../recordings_trim/`** =
-  loudness-normalised (`tools/normalize_recordings.py`) then
-  silence-trimmed (`tools/trim_silence.py`). Trimming is critical here: on
-  raw audio an earlier run put **86% of training frames on silence** and
-  never learned the speech.
-* **Split** (matches the assignment spec: test = one male + one female
-  speaker, all their recordings):
-  * `train` / `dev` - the 5 training voices, all 5 passes, pooled and split
-    ~88 / 12 at random (seed `SPLIT_SEED`). dev is **matched** to train, for
-    comparing models.
-  * `test` = the held-out male voice + the held-out female voice, all
-    passes - **speaker-independent** (a couple of known-bad clips dropped,
-    see `DROP_UTTS`).
-* **Units:** the Myanmar **syllable itself is the phone** (~65 units, one
-  3-state HMM each). The earlier grapheme decomposition made most "phones"
-  bare tone/medial marks with no acoustic target. Segmentation:
-  [`mm_syllable.py`](mm_syllable.py).
-* **Features:** MFCC **+ 3 Kaldi pitch features** (Burmese is tonal - plain
-  MFCCs drop the tone) + per-speaker CMVN. `--boost-silence 1.25` in
-  training since the trimmed clips have very little silence left.
-* **Language model:** closed-vocabulary **bigram** estimated from the training
-  transcripts (the prompt set is fixed, so this is optimistic by design).
-* **Kaldi:** runs inside Docker image `tklwin/kaldi-apple-silicon` (Apple
-  Silicon native). Every Kaldi step in this notebook is a call to the
-  `kaldi(...)` helper, which does `docker run` with the project mounted at
-  `/workspace`.
+* **Corpus:** 7 speakers (5 train, 2 held-out test: one male, one female).
+  Folder names live in `speaker_config.py` (not in git). 5 passes x 150
+  prompts each. Audio from `../recordings_trim/` (normalised + trimmed).
+* **Split:** `train`/`dev` = the 5 training voices, pooled, ~88/12 random
+  (seed `SPLIT_SEED`) - dev is matched to train. `test` = the 2 held-out
+  speakers, all passes - speaker-independent.
+* **Units:** each Myanmar syllable is one phone (~65 units, one 3-state HMM
+  each) - see [`mm_syllable.py`](mm_syllable.py).
+* **Features:** MFCC + 3 Kaldi pitch features (Burmese is tonal) + CMVN.
+* **LM:** closed-vocabulary bigram from the training transcripts.
+* **Kaldi:** runs in Docker (`tklwin/kaldi-apple-silicon`) via the
+  `kaldi(...)` helper, project mounted at `/workspace`.
 
-> **Prereqs:** Docker Desktop running; `docker pull tklwin/kaldi-apple-silicon:latest`
-> done once. This notebook's kernel is the repo venv
-> (`../../.venv`, i.e. `AIEF_B2_References_Assignment/.venv`).
+> Prereqs: Docker Desktop running, `tklwin/kaldi-apple-silicon:latest`
+> pulled. Kernel = the repo venv (`../../.venv`).
 """)
 
 # ----------------------------------------------------------------------
@@ -74,13 +54,9 @@ import pandas as pd
 
 # --- paths (host) ---
 NB_DIR   = Path.cwd()                     # .../B2-Assignment4/step3_asr
-PROJ     = NB_DIR.parent                  # .../B2-Assignment4          <- mounted as /workspace
-S5       = NB_DIR / "s5"                  # Kaldi working dir (this experiment)
-# Audio source. "recordings_trim" = loudness-normalised + silence-trimmed
-# (tools/normalize_recordings.py then tools/trim_silence.py). The grapheme-phone
-# run on raw audio put 86% of frames on silence and never learned the speech;
-# trimming + syllable units + pitch features are this run's fix.
-REC_SET  = "recordings_trim"
+PROJ     = NB_DIR.parent                  # mounted as /workspace
+S5       = NB_DIR / "s5"                  # Kaldi working dir
+REC_SET  = "recordings_trim"              # normalised + silence-trimmed audio
 RECS     = PROJ / REC_SET
 S5.mkdir(exist_ok=True)
 
@@ -91,24 +67,17 @@ S5_WS       = "/workspace/step3_asr/s5"   # S5 inside the container
 KALDI_ROOT  = "/opt/kaldi"
 
 # --- run params ---
-# Kaldi splits data BY SPEAKER, so nj must be <= #speakers actually present in
-# that set. train pool has 5 speakers (reliably all present in the 88% split);
-# dev is a small random 12% slice - keep its nj conservative in case a
-# speaker is thin in that draw. test always has exactly 2 (1 male + 1 female).
+# nj must be <= #speakers present in that set (Kaldi splits data by speaker).
 NJ_TRAIN  = 4
 NJ_DECODE = {"train": 4, "dev": 2, "test": 2}
 MFCC_CONF = "--use-energy=false --sample-frequency=16000"
 LM_ORDER  = 2
 
-# --- split (matches the assignment spec) ---
-# dev is a MATCHED random hold-out from the train speakers (same speakers /
-# passes / channel as train) so it is useful for comparing models.
-# test = one male + one female speaker, all their utterances -> speaker-
-# independent, the number the assignment actually asks for.
-#
-# Which recording folders are used for what lives in speaker_config.py, which
-# is NOT tracked by git (folder names may be real people's names) - copy
-# speaker_config.example.py to speaker_config.py and fill in your own.
+# --- split ---
+# dev = matched random hold-out from train speakers. test = the 2 held-out
+# speakers (one male, one female), all utterances - speaker-independent.
+# Folder names live in speaker_config.py (gitignored, real names) - copy
+# speaker_config.example.py to make your own.
 sys.path.insert(0, str(NB_DIR))
 try:
     from speaker_config import TRAIN_SPEAKER_DIRS, TEST_SPEAKER_DIRS, DROP_UTTS
@@ -124,17 +93,11 @@ TEST_SPEAKERS  = [(TEST_SPEAKER_DIRS["male"], ALL_PASSES), (TEST_SPEAKER_DIRS["f
 DEV_FRACTION   = 0.12
 SPLIT_SEED     = 1234
 
-# GMM tree/gauss sizes - scaled for training-set size (the Kaldi wsj defaults
-# 2000/11000, 2500/15000 badly overfit a small corpus). Was 700/6000, 1000/8000
-# for ~1300 utts / 2 speakers, then roughly doubled for ~2600 utts / 4 speakers;
-# not yet re-tuned for the current ~3300 utts / 5 speakers. Adjust again as
-# more speakers land.
+# GMM tree/gauss sizes, scaled down from Kaldi wsj defaults to avoid
+# overfitting this small corpus. Not yet re-tuned for the current 5 speakers.
 GMM_SIZES = {"tri1": (1200, 9000), "tri2": (1800, 12000), "tri3": (1800, 12000)}
 
-# Standard Kaldi wsj/librispeech value; helps the (now small, post-trim) sil
-# model train without dominating. The silence-collapse in earlier runs was
-# actually the syllable-lexicon OOV bug, not a boost-silence issue.
-BOOST_SIL = 1.25
+BOOST_SIL = 1.25  # helps the small post-trim silence model train
 
 print("PROJ :", PROJ)
 print("S5   :", S5)
@@ -145,9 +108,8 @@ assert RECS.is_dir(), RECS
 md(r"""
 ## 2 - The `kaldi()` helper
 
-Runs a bash snippet inside the image with `PROJ` mounted at `/workspace` and the
-working directory set to `s5/`. `path.sh` (written in the next cell) puts the
-Kaldi binaries and `steps/`, `utils/` on `PATH`.
+Runs a bash snippet in the container, `PROJ` mounted at `/workspace`, cwd
+`s5/`. `path.sh` puts Kaldi binaries and `steps/`/`utils/` on `PATH`.
 """)
 
 code(r"""
@@ -209,8 +171,8 @@ code(r"""
     'export decode_cmd="run.pl"\n'
     'export cuda_cmd="run.pl"\n', encoding="utf-8")
 
-# steps/ and utils/ come from the wsj recipe inside the image; local/ we make
-# ourselves. mm_syllable.py is copied in so container-side python can import it.
+# steps/ and utils/ come from the image's wsj recipe. Copy mm_syllable.py in
+# so container-side python can import it.
 shutil.copy2(NB_DIR / "mm_syllable.py", S5 / "mm_syllable.py")
 (S5 / "syl_tok.py").write_text(
     "import sys\n"
@@ -233,16 +195,13 @@ kaldi(
 md(r"""
 ## 4 - Data preparation
 
-Build Kaldi `data/{train,dev,test}` from the recordings. `wav.scp` uses
-container paths (`/workspace/recordings/...`); transcripts are normalised (NFC,
-drop ASCII punctuation / commas, collapse spaces).
+Build Kaldi `data/{train,dev,test}` from the recordings. Transcripts are
+normalised (NFC, punctuation stripped, spaces collapsed).
 
-* **train / dev** - all 5 passes of the training speakers, pooled and split
-  `DEV_FRACTION` at random (seed `SPLIT_SEED`). dev is therefore *matched* to
-  train (same speakers, passes, mic) - the right set for **comparing models**.
-* **test** - the two held-out speakers (one male, one female), held out
-  entirely -> **speaker-independent**, the hard number and the one the
-  assignment cares about.
+* **train/dev** - training speakers, pooled, split `DEV_FRACTION` at random.
+  dev is matched to train (same speakers) - for comparing models.
+* **test** - the 2 held-out speakers - speaker-independent, the number that
+  matters.
 """)
 
 code(r"""
@@ -253,26 +212,18 @@ from mm_syllable import syllable_break
 PUNCT = re.compile(r"[,\.‘’\"'()\[\]/:;!?]+")
 
 def norm_text(s: str) -> str:
-    # NFC, drop punctuation, then SYLLABLE-SEGMENT so the transcript tokens match
-    # the syllable lexicon. Without this ~74% of `text` tokens (multi-syllable
-    # words like "နံပါတ်", multi-digit numbers like "၁၅") were OOV -> mapped to
-    # <UNK>/spn, and the acoustic models aligned ~90% of frames to silence/spn.
+    # NFC, drop punctuation, syllable-segment so tokens match the syllable
+    # lexicon (word-level text was mostly OOV against a syllable lexicon).
     s = unicodedata.normalize("NFC", s.strip())
     s = PUNCT.sub(" ", s)
     s = re.sub(r"\s+", " ", s).strip()
     return " ".join(syllable_break(s))
 
 def collect(spec):
-    # -> list of (utt, spk, container_wav_path, normalised_text) for a speaker/pass spec
-    #
-    # `spk` (the Kaldi speaker-id written into utt2spk) comes from that pass's
-    # OWN utt2spk sidecar, not the recordings/<folder> name used to locate it.
-    # Kaldi requires utt-ids to sort into contiguous per-speaker blocks, which
-    # only holds if the speaker-id matches the id actually embedded in the
-    # utt-id text. Folder names are just a local label (case can differ from
-    # the name typed into the recorder for that speaker's sessions) and using
-    # them directly breaks that invariant once enough speakers are mixed
-    # together for a casing mismatch to reorder things.
+    # -> list of (utt, spk, container_wav_path, normalised_text, raw_text)
+    # spk comes from each pass's own utt2spk, not the folder name - Kaldi
+    # needs utt-ids to sort into per-speaker blocks, which only holds if spk
+    # matches the id actually embedded in the utt-id text.
     rows = []
     for folder, passes in spec:
         for pz in passes:
@@ -298,9 +249,8 @@ def collect(spec):
 
 def write_data_dir(name, rows):
     d = S5 / "data" / name
-    # Wipe any previous run's dir first: a stale feats.scp/cmvn.scp left over
-    # from before (e.g. a speaker added since) makes fix_data_dir.sh silently
-    # filter the new speaker list down to whoever's in the old cached features.
+    # Wipe first: a stale feats.scp/cmvn.scp from a previous run makes
+    # fix_data_dir.sh silently drop any speaker not in the old cache.
     if d.exists():
         shutil.rmtree(d)
     d.mkdir(parents=True, exist_ok=True)
@@ -342,15 +292,12 @@ print(" ".join(syls))
 md(r"""
 ## 5 - Lexicon & `lang/`
 
-**Unit = the whole syllable** (this run's change). The earlier grapheme
-decomposition made ~15 of ~47 "phones" bare tone/medial marks with no
-acoustic target - the models never learned. Here each of the ~65 training
-syllables gets one 3-state HMM. The *word* in `words.txt` / `text` / the LM
-stays the Unicode syllable; the *phone* is an ASCII id (`S001`, `S002`, ...)
-- Kaldi's `prepare_lang.sh` mangles multi-code-point phone names, ASCII ones
-are safe. `data/local/syl2phone.txt` records the map for reference.
+Unit = the whole syllable, one 3-state HMM each (~65 units). The *word* in
+`words.txt`/`text` stays the Unicode syllable; the *phone* is an ASCII id
+(`S001`, ...) since Kaldi's `prepare_lang.sh` mangles multi-codepoint phone
+names. Map recorded in `data/local/syl2phone.txt`.
 
-Then `utils/prepare_lang.sh` builds `data/lang/` (L.fst etc.).
+`utils/prepare_lang.sh` builds `data/lang/`.
 """)
 
 code(r"""
@@ -445,11 +392,10 @@ kaldi("for n in train dev test; do echo -n \"$n feat-dim: \"; feat-to-dim "
 md(r"""
 ## 8 - Decode + score helper (SER + WER)
 
-`text` is syllable-segmented, so Kaldi's own scorer gives the **SER** (syllable
-error rate) directly. For **WER** the syllable hypothesis is greedily
-re-segmented into the prompt's whitespace "words" (closed 150-prompt
-vocabulary, longest-match) and scored against `data/local/<set>.wordref`.
-Results accumulate in `RESULTS`.
+`text` is syllable-segmented, so Kaldi's scorer gives SER directly. For WER,
+the hypothesis is greedily re-segmented into whitespace "words" (closed
+vocab, longest-match) and scored against `data/local/<set>.wordref`. Results
+accumulate in `RESULTS`.
 """)
 
 code(r"""
@@ -573,18 +519,15 @@ decode_and_score("exp/tri3", fmllr=True)
 md(r"""
 ## 13 - Advanced model
 
-The `tklwin/kaldi-apple-silicon` image has **no SGMM2 binaries**, so the
-"advanced" model here is **boosted-MMI discriminative training** on top of the
-tri3 SAT GMM - light (no DNN egs / i-vectors), fast, and it reliably improves
-on the maximum-likelihood baseline.
+This image has no SGMM2 binaries, so the advanced model is boosted-MMI
+discriminative training on top of tri3.
 
-**13b** (optional, off by default) sketches a **chain TDNN** for anyone with more
-time / RAM - use `egs/mini_librispeech/s5/local/chain/run_tdnn_1c.sh` in the
-image as the template.
+**13b** (optional, off by default): a chain TDNN sketch for more time/RAM,
+templated on `run_tdnn_1c.sh` in the image.
 """)
 
 code(r"""
-# 13a - boosted MMI on tri3  (advanced model; target: beat tri3)
+# 13a - boosted MMI on tri3 (advanced model)
 kaldi(f"steps/align_fmllr.sh --nj {NJ_TRAIN} --cmd run.pl --boost-silence {BOOST_SIL} "
       f"  data/train data/lang exp/tri3 exp/tri3_ali")
 kaldi(f"steps/make_denlats.sh --nj {NJ_TRAIN} --cmd run.pl --sub-split {NJ_TRAIN} "
@@ -607,10 +550,9 @@ pd.DataFrame([r for r in RESULTS if r["model"] == "tri3_mmi_b0.1"])
 """)
 
 code(r"""
-# 13b - chain TDNN  (OPTIONAL - heaviest step; enable only with time + RAM)
+# 13b - chain TDNN (optional, heaviest step)
 RUN_CHAIN = False
 if RUN_CHAIN:
-    # Minimal chain pipeline. Params are conservative for a ~1200-utt / 7.6 GB box.
     kaldi(f"steps/align_fmllr_lats.sh --nj {NJ_TRAIN} --cmd run.pl "
           f"  data/train data/lang exp/tri3 exp/tri3_lats && rm -f exp/tri3_lats/fsts.*.gz")
     kaldi("cp -rT data/lang data/lang_chain && "
@@ -672,31 +614,16 @@ ax.figure.savefig(NB_DIR/"results_wer.png", dpi=120)
 md(r"""
 ## 15 - Notes & limitations
 
-* **Expect high WER regardless.** With only **5 training speakers** and ~3700
-  utts the acoustic models are still data-starved. `dev` (matched, random hold-out)
-  shows the model progression; `test` (two unseen speakers, one male one
-  female, per the assignment spec) is much harder and is the honest
-  speaker-independent number. GMM tree/Gaussian counts are shrunk
-  (`GMM_SIZES`) so the triphone models don't simply overfit past monophone.
-  The real fix is still more *training* speakers - the assignment wants ~10;
-  rebuild `data/` and rerun from section 4 as more land.
-* **Already tried and ruled out as quick fixes** (see `step3_asr/README.md`
-  for the numbers): a syllable-as-phone unit set (helps dev, hurts test - a
-  wash) and wider LM-weight sweeps (no material change). This really is a
-  data-size story, not a tuning one.
-* **Closed vocabulary + bigram from the prompts** -> WER/SER here are optimistic
-  vs. an open-vocabulary setting. Fine for comparing models to each other.
-* One held-out test voice had a couple of truncated clips (dropped via
-  `DROP_UTTS` in `speaker_config.py`) - see that speaker's `NOTES.txt` under
-  `../recordings/`.
-* **No SGMM2** in this image - the "advanced" model is boosted-MMI on tri3.
-  The chain-TDNN cell is off by default (`RUN_CHAIN=False`); enable it only with
-  spare time / RAM.
-* **`nj` is capped by speaker count** because Kaldi splits by speaker - a
-  random `dev` draw can be thin on some speakers, so its `nj` is kept
-  conservative (see `NJ_DECODE`).
-* Re-run `python build_notebook.py` after editing `build_notebook.py` to
-  regenerate this notebook.
+* Only 5 training speakers - models are still data-starved. `dev` (matched)
+  shows model progression; `test` (2 unseen speakers) is the honest
+  speaker-independent number. Real fix: more training speakers.
+* Closed vocabulary + bigram -> WER/SER here are optimistic vs. open-vocab.
+* One held-out speaker had truncated clips dropped via `DROP_UTTS` - see
+  that speaker's `NOTES.txt` under `../recordings/`.
+* No SGMM2 in this image - advanced model is boosted-MMI on tri3. Chain-TDNN
+  is off by default (`RUN_CHAIN=False`).
+* `nj` is capped by speaker count (Kaldi splits data by speaker).
+* Edit `build_notebook.py`, not the notebook, then rerun it to regenerate.
 """)
 
 # ======================================================================
